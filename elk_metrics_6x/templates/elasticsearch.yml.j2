@@ -43,12 +43,18 @@ http.port: {{ elastic_port }}
 #
 {% set IP_ARR=[] %}
 {% for host in groups['elastic-logstash'] %}
-{%   if IP_ARR.insert(loop.index,hostvars[host]['ansible_host']) %}
+{%   if IP_ARR.extend([hostvars[host]['ansible_host'] | string]) %}
 {%   endif %}
 {% endfor %}
-discovery.zen.ping.unicast.hosts: [{{ IP_ARR | join(', ') }}]
-node.master: {{ (inventory_hostname == groups['elastic-logstash'][0]) | ternary(true, false) }}
-node.data: true
+{% set available_nodes = (groups['elastic-logstash'][:master_node_count] | length) %}
+{# Master node count is determined following upstream recommendations #}
+{% set master_node_count = (available_nodes > 1) | ternary(((available_nodes / 2) + 1), 1) %}
+discovery.zen.ping.unicast.hosts: {{ IP_ARR }}
+discovery.zen.minimum_master_nodes: {{ master_node_count }}
+{# The first set of nodes in the master_node_count are marked as such #}
+node.master: {{ (inventory_hostname in groups['elastic-logstash'][:master_node_count]) | ternary(true, false) }}
+{# Every node in the master list and every other node after will be a data node #}
+node.data: {{ (inventory_hostname in (groups['elastic-logstash'][:master_node_count] + groups['elastic-logstash'][master_node_count::2])) | ternary(true, false) }}
 #
 # Prevent the "split brain" by configuring the majority of nodes (total number of nodes / 2 + 1):
 #
